@@ -3,7 +3,7 @@
 <head>
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
-  <title>Snake Game</title>
+  <title>Virtue Snake Game</title>
   <style>
     body {
       margin: 0;
@@ -12,27 +12,65 @@
       flex-direction: column;
       align-items: center;
       justify-content: center;
-      background: #1e1e2e;
+      background: linear-gradient(-45deg, #1e1e2e, #24273a, #1a1b2e, #2a2140);
+      background-size: 400% 400%;
+      animation: bgShift 14s ease infinite;
       color: #cdd6f4;
       font-family: Arial, Helvetica, sans-serif;
     }
-    h1 { margin: 0 0 10px; }
+    @keyframes bgShift {
+      0%   { background-position: 0% 50%; }
+      50%  { background-position: 100% 50%; }
+      100% { background-position: 0% 50%; }
+    }
+    h1 {
+      margin: 0 0 10px;
+      background: linear-gradient(90deg, #89b4fa, #cba6f7, #f5c2e7, #89b4fa);
+      background-size: 200% auto;
+      -webkit-background-clip: text;
+      background-clip: text;
+      color: transparent;
+      filter: drop-shadow(0 0 10px rgba(203, 166, 247, 0.5));
+      animation: shimmer 4s linear infinite;
+    }
+    @keyframes shimmer {
+      to { background-position: 200% center; }
+    }
     #info {
       display: flex;
       gap: 40px;
       font-size: 18px;
       margin-bottom: 10px;
     }
+    #info b { color: #a6e3a1; }
+    .pop {
+      display: inline-block;
+      animation: pop 0.3s ease-out;
+    }
+    @keyframes pop {
+      0%   { transform: scale(1); }
+      40%  { transform: scale(1.35); color: #f9e2af; }
+      100% { transform: scale(1); }
+    }
     canvas {
       background: #11111b;
       border: 3px solid #89b4fa;
-      border-radius: 6px;
+      border-radius: 10px;
+      box-shadow: 0 0 25px rgba(137, 180, 250, 0.35), 0 0 60px rgba(203, 166, 247, 0.15);
     }
-    #help { margin-top: 12px; opacity: 0.7; font-size: 14px; }
+    #help {
+      margin-top: 12px;
+      font-size: 14px;
+      animation: breathe 2.5s ease-in-out infinite alternate;
+    }
+    @keyframes breathe {
+      from { opacity: 0.4; }
+      to   { opacity: 0.9; }
+    }
   </style>
 </head>
 <body>
-  <h1>Snake</h1>
+  <h1>Virtue Snake Game</h1>
   <div id="info">
     <span>Score: <b id="score">0</b></span>
     <span>High Score: <b id="high">0</b></span>
@@ -53,6 +91,12 @@
     let snake, dir, nextDir, food, score, gameOver, paused, timer;
     let highScore = Number(localStorage.getItem('snakeHighScore') || 0);
     highEl.textContent = highScore;
+
+    // Visual effect state
+    let particles = [];   // burst particles when eating food
+    let floaters = [];    // "+10" text rising from eaten food
+    let shake = 0;        // screen shake strength on game over
+    let flash = 0;        // red flash strength on game over
 
     function randomFood() {
       while (true) {
@@ -77,10 +121,33 @@
       score = 0;
       gameOver = false;
       paused = false;
+      particles = [];
+      floaters = [];
+      shake = 0;
+      flash = 0;
       scoreEl.textContent = score;
       clearInterval(timer);
       timer = setInterval(update, TICK_MS);
-      draw();
+    }
+
+    function burst(px, py, color) {
+      for (let i = 0; i < 16; i++) {
+        const angle = Math.random() * Math.PI * 2;
+        const speed = 1 + Math.random() * 3;
+        particles.push({
+          x: px, y: py,
+          vx: Math.cos(angle) * speed,
+          vy: Math.sin(angle) * speed,
+          life: 1,
+          color
+        });
+      }
+    }
+
+    function popScore() {
+      scoreEl.classList.remove('pop');
+      void scoreEl.offsetWidth; // restart the CSS animation
+      scoreEl.classList.add('pop');
     }
 
     function update() {
@@ -103,56 +170,188 @@
       if (head.x === food.x && head.y === food.y) {
         score += 10;
         scoreEl.textContent = score;
+        popScore();
+
+        const px = food.x * CELL + CELL / 2;
+        const py = food.y * CELL + CELL / 2;
+        burst(px, py, '#f38ba8');
+        floaters.push({ x: px, y: py, life: 1, text: '+10' });
+
         food = randomFood();
       } else {
         snake.pop();
       }
-
-      draw();
     }
 
     function endGame() {
       gameOver = true;
       clearInterval(timer);
+      shake = 12;
+      flash = 1;
       if (score > highScore) {
         highScore = score;
         localStorage.setItem('snakeHighScore', highScore);
         highEl.textContent = highScore;
       }
-      draw();
     }
 
-    function draw() {
-      ctx.fillStyle = '#11111b';
-      ctx.fillRect(0, 0, canvas.width, canvas.height);
+    function drawGrid() {
+      ctx.strokeStyle = 'rgba(137, 180, 250, 0.06)';
+      ctx.lineWidth = 1;
+      ctx.beginPath();
+      for (let i = 1; i < GRID; i++) {
+        ctx.moveTo(i * CELL, 0);
+        ctx.lineTo(i * CELL, canvas.height);
+        ctx.moveTo(0, i * CELL);
+        ctx.lineTo(canvas.width, i * CELL);
+      }
+      ctx.stroke();
+    }
 
-      // Food
+    function drawFood(now) {
+      const pulse = Math.sin(now * 0.008) * 1.5;
+      const cx = food.x * CELL + CELL / 2;
+      const cy = food.y * CELL + CELL / 2;
+      ctx.save();
+      ctx.shadowBlur = 15;
+      ctx.shadowColor = '#f38ba8';
       ctx.fillStyle = '#f38ba8';
       ctx.beginPath();
-      ctx.arc(food.x * CELL + CELL / 2, food.y * CELL + CELL / 2, CELL / 2 - 2, 0, Math.PI * 2);
+      ctx.arc(cx, cy, CELL / 2 - 3 + pulse, 0, Math.PI * 2);
       ctx.fill();
+      ctx.restore();
+    }
 
-      // Snake
-      snake.forEach((s, i) => {
-        ctx.fillStyle = i === 0 ? '#a6e3a1' : '#94e2d5';
-        ctx.fillRect(s.x * CELL + 1, s.y * CELL + 1, CELL - 2, CELL - 2);
-      });
+    function drawSnake() {
+      const r = 5;
+      // Draw tail first so the head sits on top
+      for (let i = snake.length - 1; i >= 0; i--) {
+        const s = snake[i];
+        const hue = 140 + Math.min(i * 2, 60);
+        const light = Math.max(45, 65 - i * 0.8);
+        const color = `hsl(${hue}, 70%, ${light}%)`;
 
-      // Overlays
-      if (gameOver || paused) {
-        ctx.fillStyle = 'rgba(0, 0, 0, 0.6)';
-        ctx.fillRect(0, 0, canvas.width, canvas.height);
-        ctx.fillStyle = '#cdd6f4';
-        ctx.textAlign = 'center';
-        ctx.font = 'bold 28px Arial';
-        if (gameOver) {
-          ctx.fillText('Game Over', canvas.width / 2, canvas.height / 2 - 10);
-          ctx.font = '16px Arial';
-          ctx.fillText('Press Enter to play again', canvas.width / 2, canvas.height / 2 + 20);
-        } else {
-          ctx.fillText('Paused', canvas.width / 2, canvas.height / 2);
-        }
+        ctx.save();
+        ctx.shadowBlur = i === 0 ? 14 : 8;
+        ctx.shadowColor = color;
+        ctx.fillStyle = color;
+        ctx.beginPath();
+        ctx.roundRect(s.x * CELL + 1, s.y * CELL + 1, CELL - 2, CELL - 2, r);
+        ctx.fill();
+        ctx.restore();
       }
+
+      // Eyes on the head, facing the direction of movement
+      const head = snake[0];
+      const cx = head.x * CELL + CELL / 2;
+      const cy = head.y * CELL + CELL / 2;
+      const fwdX = cx + dir.x * 4;
+      const fwdY = cy + dir.y * 4;
+      const perpX = -dir.y * 4;
+      const perpY = dir.x * 4;
+      [1, -1].forEach(side => {
+        const ex = fwdX + perpX * side;
+        const ey = fwdY + perpY * side;
+        ctx.fillStyle = '#ffffff';
+        ctx.beginPath();
+        ctx.arc(ex, ey, 2.5, 0, Math.PI * 2);
+        ctx.fill();
+        ctx.fillStyle = '#11111b';
+        ctx.beginPath();
+        ctx.arc(ex + dir.x * 1, ey + dir.y * 1, 1.2, 0, Math.PI * 2);
+        ctx.fill();
+      });
+    }
+
+    function drawParticles() {
+      particles.forEach(p => {
+        ctx.globalAlpha = Math.max(p.life, 0);
+        ctx.fillStyle = p.color;
+        ctx.beginPath();
+        ctx.arc(p.x, p.y, 2.5 * p.life + 0.5, 0, Math.PI * 2);
+        ctx.fill();
+      });
+      ctx.globalAlpha = 1;
+    }
+
+    function drawFloaters() {
+      floaters.forEach(f => {
+        ctx.globalAlpha = Math.max(f.life, 0);
+        ctx.fillStyle = '#f9e2af';
+        ctx.font = 'bold 14px Arial';
+        ctx.textAlign = 'center';
+        ctx.fillText(f.text, f.x, f.y);
+      });
+      ctx.globalAlpha = 1;
+    }
+
+    function drawOverlay() {
+      if (!gameOver && !paused) return;
+      ctx.fillStyle = 'rgba(0, 0, 0, 0.6)';
+      ctx.fillRect(0, 0, canvas.width, canvas.height);
+      ctx.fillStyle = '#cdd6f4';
+      ctx.textAlign = 'center';
+      ctx.shadowBlur = 12;
+      ctx.shadowColor = '#cba6f7';
+      if (gameOver) {
+        ctx.font = 'bold 30px Arial';
+        ctx.fillText('Game Over', canvas.width / 2, canvas.height / 2 - 10);
+        ctx.shadowBlur = 0;
+        ctx.font = '16px Arial';
+        ctx.fillText('Press Enter to play again', canvas.width / 2, canvas.height / 2 + 20);
+      } else {
+        ctx.font = 'bold 30px Arial';
+        ctx.fillText('Paused', canvas.width / 2, canvas.height / 2);
+      }
+      ctx.shadowBlur = 0;
+    }
+
+    function render(now) {
+      ctx.save();
+
+      // Screen shake
+      if (shake > 0) {
+        ctx.translate((Math.random() - 0.5) * shake, (Math.random() - 0.5) * shake);
+        shake *= 0.9;
+        if (shake < 0.5) shake = 0;
+      }
+
+      ctx.fillStyle = '#11111b';
+      ctx.fillRect(-20, -20, canvas.width + 40, canvas.height + 40);
+      drawGrid();
+      drawFood(now);
+      drawSnake();
+
+      // Particles and floating text
+      particles = particles.filter(p => p.life > 0);
+      particles.forEach(p => {
+        p.x += p.vx;
+        p.y += p.vy;
+        p.vx *= 0.94;
+        p.vy *= 0.94;
+        p.life -= 0.03;
+      });
+      drawParticles();
+
+      floaters = floaters.filter(f => f.life > 0);
+      floaters.forEach(f => {
+        f.y -= 0.7;
+        f.life -= 0.02;
+      });
+      drawFloaters();
+
+      // Red flash on game over
+      if (flash > 0) {
+        ctx.fillStyle = `rgba(243, 139, 168, ${flash * 0.35})`;
+        ctx.fillRect(-20, -20, canvas.width + 40, canvas.height + 40);
+        flash *= 0.9;
+        if (flash < 0.01) flash = 0;
+      }
+
+      ctx.restore();
+      drawOverlay();
+
+      requestAnimationFrame(render);
     }
 
     document.addEventListener('keydown', e => {
@@ -164,10 +363,7 @@
       }
       if (key === ' ') {
         e.preventDefault();
-        if (!gameOver) {
-          paused = !paused;
-          draw();
-        }
+        if (!gameOver) paused = !paused;
         return;
       }
 
@@ -187,6 +383,7 @@
     });
 
     reset();
+    requestAnimationFrame(render);
   </script>
 </body>
 </html>
